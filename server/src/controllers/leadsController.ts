@@ -19,12 +19,16 @@ export async function createLead(req: Request, res: Response, next: NextFunction
 export async function getLeads(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const planId = (req.query.planId as string) || undefined;
-    const leads = await LeadService.getLeads(planId);
+    const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+
+    const result = await LeadService.getLeads(planId, page, limit);
 
     res.status(200).json({
       success: true,
-      count: leads.length,
-      data: leads,
+      count: result.leads.length,
+      data: result.leads,
+      ...(result.pagination ? { pagination: result.pagination } : {}),
     });
   } catch (err) {
     next(err);

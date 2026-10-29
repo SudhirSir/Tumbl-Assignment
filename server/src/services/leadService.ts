@@ -208,15 +208,18 @@ export class LeadService {
   }
 
   /**
-   * Retrieves all leads, newest first, with mobile numbers masked
+   * Retrieves all leads, newest first, with mobile numbers masked.
+   * Bonus: Supports optional pagination (page & limit).
    */
-  static async getLeads(planId?: string) {
+  static async getLeads(planId?: string, page?: number, limit?: number) {
     const whereClause: any = {};
     if (planId) {
       whereClause.planId = planId;
     }
 
-    const leads = await prisma.lead.findMany({
+    const total = await prisma.lead.count({ where: whereClause });
+
+    const rawLeads = await prisma.lead.findMany({
       where: whereClause,
       include: {
         plan: {
@@ -224,9 +227,12 @@ export class LeadService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      ...(page && limit && page > 0 && limit > 0
+        ? { skip: (page - 1) * limit, take: limit }
+        : {}),
     });
 
-    return leads.map((lead) => ({
+    const leads = rawLeads.map((lead) => ({
       applicationId: lead.id,
       applicantName: lead.applicantName,
       maskedMobile: maskMobile(lead.mobileNumber),
@@ -242,6 +248,16 @@ export class LeadService {
       source: lead.source,
       createdAt: lead.createdAt.toISOString(),
     }));
+
+    return {
+      leads,
+      pagination: page && limit ? {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      } : undefined,
+    };
   }
 
   /**

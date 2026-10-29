@@ -123,6 +123,43 @@ export const EVAL_SUITE: EvalScenario[] = [
       };
     },
   },
+  {
+    id: 'CONV_7_HINGLISH',
+    title: '7. Bonus: Hinglish Conversational Query',
+    description: 'Borrower inquires in Hinglish; agent calls tool and responds with exact valuation.',
+    messages: [
+      { role: 'user', content: 'Mujhe 45 gram 22 carat sone par kitna loan mil sakta hai?' },
+    ],
+    expectedChecks: (res) => {
+      const hasToolCall = res.toolCallsMade.some((t: any) => t.name === 'calculate_quote');
+      const hasCorrectAmount = res.reply.includes('2,16,562');
+      return {
+        passed: hasToolCall && hasCorrectAmount,
+        reason: hasToolCall && hasCorrectAmount
+          ? 'Agent parsed Hinglish weights, called calculate_quote, and replied with ₹2,16,562'
+          : 'Failed to process Hinglish input',
+      };
+    },
+  },
+  {
+    id: 'CONV_8_USER_CHANGING_MIND',
+    title: '8. Bonus: User Changing Their Mind',
+    description: 'Borrower initially selected bullet repayment then switches to monthly EMI.',
+    messages: [
+      { role: 'user', content: 'I have 45 grams 22K gold. I want the bullet repayment plan.' },
+      { role: 'assistant', content: 'Bullet repayment plan gives ₹2,02,125.' },
+      { role: 'user', content: 'Actually I changed my mind, I want to switch to monthly EMI instead.' },
+    ],
+    expectedChecks: (res) => {
+      const updated = res.reply.includes('Monthly EMI') && res.reply.includes('updated');
+      return {
+        passed: Boolean(updated),
+        reason: updated
+          ? 'Agent gracefully adapted to user changing their preferred loan plan'
+          : 'Agent failed to update plan preference',
+      };
+    },
+  },
 ];
 
 export async function runEvals() {

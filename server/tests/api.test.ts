@@ -256,6 +256,15 @@ describe('Gold Loan Portal API Specification Tests', () => {
         expect(lead.planId).toBe('PLAN_EMI_01');
       }
     });
+
+    it('Bonus: should support pagination with page and limit parameters', async () => {
+      const res = await request(app).get('/api/v1/leads?page=1&limit=2');
+      expect(res.status).toBe(200);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.page).toBe(1);
+      expect(res.body.pagination.limit).toBe(2);
+      expect(res.body.data.length).toBeLessThanOrEqual(2);
+    });
   });
 
   describe('Bonus B1: Lead Status Workflow', () => {

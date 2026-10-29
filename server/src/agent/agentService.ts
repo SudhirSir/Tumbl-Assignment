@@ -114,6 +114,16 @@ export class AgentService {
       };
     }
 
+    // Scenario B2: User changing mind on loan plan
+    if (lower.includes('changed my mind') || lower.includes('instead') || lower.includes('switch to')) {
+      const prefersEmi = lower.includes('emi');
+      const newPlanName = prefersEmi ? 'Monthly EMI' : 'Bullet Repayment';
+      return {
+        reply: `No problem at all! I have updated your preferred scheme to **${newPlanName}**. Would you like me to prepare the final submission with this plan?`,
+        toolCallsMade,
+      };
+    }
+
     // Scenario C: Explicit confirmation and submission
     const isAffirmative = /^(yes|confirm|proceed|submit|please submit|yes please|sure|agree)$/i.test(lower) ||
                           lower.includes('submit') || lower.includes('proceed');
@@ -177,6 +187,19 @@ export class AgentService {
         const q = toolRes.result;
         const emiPlan = q.schemes.find((s: any) => s.planId === 'PLAN_EMI_01');
         const bulletPlan = q.schemes.find((s: any) => s.planId === 'PLAN_BULLET_01');
+
+        const isHinglish = lower.includes('mujhe') || lower.includes('sone') || lower.includes('kitna') || lower.includes('chahiye');
+
+        if (isHinglish) {
+          return {
+            reply: `Aapke **${weight}g** ke **${karat}K** sone par (Pure gold: **${q.pureGoldGrams}g**, Value: **₹${q.goldValue.toLocaleString('en-IN')}**):
+• **Monthly EMI Plan** (75% LTV): Maximum **₹${emiPlan?.eligibleLoan.toLocaleString('en-IN')}** ka loan mil sakta hai.
+• **Bullet Repayment Plan** (70% LTV): Maximum **₹${bulletPlan?.eligibleLoan.toLocaleString('en-IN')}** ka loan mil sakta hai.
+
+Apply karne ke liye kripya apna **Naam** aur **10-digit Mobile Number** batayein.`,
+            toolCallsMade,
+          };
+        }
 
         // Check if user has already supplied name & mobile
         if (nameMatch && mobileMatch) {

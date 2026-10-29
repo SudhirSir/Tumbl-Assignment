@@ -13,7 +13,7 @@
 | **Maths & Validation** | 25 pts | Exact financial maths in integer paise/whole rupees. Hard 75% LTV cap enforced server-side. Test cases 1–6 pass 100%. |
 | **AI Agent** | 25 pts | 3 typed tools (`get_loan_schemes`, `calculate_quote`, `submit_application`). Model never calculates arithmetic. Explicit confirmation step required. Stays on topic. |
 | **Full-Stack UX** | 20 pts | Responsive down to 375px mobile viewport. Debounced (300ms) live quote calculation. Clean 3-step intake form + admin leads table. |
-| **Tests & Conversations** | 15 pts | 23 automated tests covering math, API 400/409, concurrency, and 6 full agent evaluation conversations (`npm run eval`). |
+| **Tests & Conversations** | 15 pts | 24 automated tests covering math, API 400/409, concurrency, and 8 full agent evaluation conversations (`npm run eval`). |
 | **API & Error Contract** | 10 pts | Strict uniform error response `{ error: { code, message, fields } }`. Correct HTTP status codes (200, 201, 400, 404, 409, 500 without stack traces). |
 | **AI_LOG & README** | 5 pts | Transparent `AI_LOG.md` detailing tools used, prompts, and a caught AI bug with regression test. Setup works out of the box. |
 | **Bonus Points** | +15 pts | **B1**: Concurrency lock, `Idempotency-Key` replay, status audit workflow, cached gold rate. **B2**: 4th tool, prompt injection defense, tool chips. **B4**: `docker-compose.yml`, GitHub Actions CI, rate limiting, `ARCHITECTURE.md`. |
@@ -70,7 +70,7 @@ npm test
 
 ### 4. Run AI Agent Evaluation Conversations
 ```bash
-# Runs the 6 automated conversational eval scenarios
+# Runs the 8 automated conversational eval scenarios (5 core + 3 bonus: injection, Hinglish, mind change)
 npm run eval
 ```
 

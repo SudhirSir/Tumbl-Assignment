@@ -1,0 +1,43 @@
+name: CI Test & Build Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Unit, API & Agent Evaluation Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Generate Prisma Client & Migrate DB
+        run: |
+          cd server
+          npx prisma generate
+          npx prisma db push
+
+      - name: Seed Database
+        run: npm run seed
+
+      - name: Run Full Test Suite (Unit & API)
+        run: npm test
+
+      - name: Run AI Agent Evaluation Conversations
+        run: npm run eval
+
+      - name: Build Web Client & Backend
+        run: npm run build

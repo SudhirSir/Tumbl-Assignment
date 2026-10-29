@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model LoanScheme {
+  id           String   @id
+  name         String
+  interestRate Float
+  maxLtv       Float
+  tenureMonths Int      @default(12)
+  description  String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  leads        Lead[]
+}
+
+model Lead {
+  id               String         @id
+  applicantName    String
+  mobileNumber     String
+  grossWeightGrams Float
+  netWeightGrams   Float
+  karat            Int
+  pureGoldGrams    Float
+  goldValue        Int
+  eligibleLoan     Int
+  status           String         @default("SUBMITTED")
+  planId           String
+  plan             LoanScheme     @relation(fields: [planId], references: [id])
+  idempotencyKey   String?        @unique
+  source           String         @default("FORM")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  auditLogs        LeadAuditLog[]
+}
+
+model LeadAuditLog {
+  id         String   @id @default(cuid())
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStatus String?
+  toStatus   String
+  changedBy  String   @default("SYSTEM")
+  note       String?
+  createdAt  DateTime @default(now())
+}
+
+model GoldRate {
+  id             String   @id @default("CURRENT")
+  rate24kPerGram Int      @default(7000)
+  updatedAt      DateTime @default(now())
+}

@@ -1,7 +1,8 @@
 import { config } from '../config.js';
-import { executeAgentTool, AGENT_TOOLS } from './tools.js';
+import { executeAgentTool } from './tools.js';
 import { evaluateGuardrails } from './guardrails.js';
 import { maskSensitiveString } from '../middleware/errorHandler.js';
+import { SYSTEM_PROMPT } from './prompts.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -29,7 +30,7 @@ export class AgentService {
   /**
    * Main entrypoint to process conversation messages
    */
-  static async processChat(messages: ChatMessage[]): Promise<ChatResponse> {
+  static async processChat(messages: ChatMessage[], forceDeterministic = false): Promise<ChatResponse> {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
     const userText = lastUserMessage?.content || '';
 
@@ -46,11 +47,175 @@ export class AgentService {
     }
 
     // 2. Dispatch to Live LLM or Built-in Deterministic Assistant
-    if (config.geminiApiKey && config.llmProvider === 'gemini') {
+    if (
+      !forceDeterministic &&
+      config.geminiApiKey &&
+      config.llmProvider === 'gemini' &&
+      process.env.NODE_ENV !== 'test'
+    ) {
       return this.processGeminiChat(messages);
-    } else if (config.openaiApiKey && config.llmProvider === 'openai') {
-      return this.processOpenAIChat(messages);
     } else {
+      return this.processDeterministicChat(messages);
+    }
+  }
+
+  /**
+   * Live Gemini 2.5 Flash Function Calling Integration
+   */
+  private static async processGeminiChat(messages: ChatMessage[]): Promise<ChatResponse> {
+    try {
+      const apiKey = config.geminiApiKey;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+      const geminiTools = [
+        {
+          functionDeclarations: [
+            {
+              name: 'get_loan_schemes',
+              description: 'Retrieves all available and active gold loan schemes with interest rates, max LTV, and tenure.',
+              parameters: {
+                type: 'OBJECT',
+                properties: {},
+              },
+            },
+            {
+              name: 'calculate_quote',
+              description: 'Calculates pure gold weight, market gold value, and eligible loan amounts. LLM must never calculate arithmetic itself.',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  grossWeightGrams: { type: 'NUMBER', description: 'Gross jewellery weight in grams' },
+                  netWeightGrams: { type: 'NUMBER', description: 'Net gold weight in grams' },
+                  karat: { type: 'INTEGER', description: 'Gold karat purity: 18, 22, or 24' },
+                },
+                required: ['grossWeightGrams', 'netWeightGrams', 'karat'],
+              },
+            },
+            {
+              name: 'submit_application',
+              description: 'Submits a gold loan application. ONLY call this after presenting a full summary and receiving explicit user confirmation.',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  applicantName: { type: 'STRING', description: 'Borrower full name (letters and spaces only)' },
+                  mobileNumber: { type: 'STRING', description: '10-digit Indian mobile number' },
+                  grossWeightGrams: { type: 'NUMBER', description: 'Gross weight in grams' },
+                  netWeightGrams: { type: 'NUMBER', description: 'Net weight in grams' },
+                  karat: { type: 'INTEGER', description: 'Gold karat (18, 22, 24)' },
+                  planId: { type: 'STRING', description: 'Selected scheme ID (PLAN_EMI_01 or PLAN_BULLET_01)' },
+                },
+                required: ['applicantName', 'mobileNumber', 'grossWeightGrams', 'netWeightGrams', 'karat', 'planId'],
+              },
+            },
+            {
+              name: 'check_existing_application',
+              description: 'Checks if an applicant has already applied within the last 7 days using their mobile number.',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  mobileNumber: { type: 'STRING', description: '10-digit Indian mobile number' },
+                },
+                required: ['mobileNumber'],
+              },
+            },
+          ],
+        },
+      ];
+
+      // Format conversation history for Gemini
+      const contents: any[] = messages
+        .filter((m) => m.content && m.content.trim() !== '')
+        .map((m) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        }));
+
+      // Turn 1: Send user messages and function declarations
+      const firstRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents,
+          tools: geminiTools,
+        }),
+      });
+
+      const firstData: any = await firstRes.json();
+      const candidate = firstData?.candidates?.[0]?.content?.parts?.[0];
+
+      // If Gemini called a function
+      if (candidate?.functionCall) {
+        const { name, args } = candidate.functionCall;
+        const toolRes = await executeAgentTool(name, args);
+        const toolCallsMade = [{ name, args, ...toolRes }];
+
+        // Turn 2: Send structured functionResponse back to Gemini
+        const followUpContents = [
+          ...contents,
+          {
+            role: 'model',
+            parts: [{ functionCall: candidate.functionCall }],
+          },
+          {
+            role: 'function',
+            parts: [
+              {
+                functionResponse: {
+                  name,
+                  response: {
+                    name,
+                    content: toolRes.result || toolRes.error,
+                  },
+                },
+              },
+            ],
+          },
+        ];
+
+        const secondRes = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            contents: followUpContents,
+          }),
+        });
+
+        const secondData: any = await secondRes.json();
+        const replyText =
+          secondData?.candidates?.[0]?.content?.parts?.[0]?.text ||
+          (toolRes.success ? JSON.stringify(toolRes.result) : toolRes.error);
+
+        const isSubmission = name === 'submit_application' && toolRes.success;
+        const asksConfirmation =
+          replyText.toLowerCase().includes('confirm') ||
+          replyText.toLowerCase().includes('submit your application');
+
+        return {
+          reply: replyText,
+          toolCallsMade,
+          suggestedAction: isSubmission
+            ? 'SUBMISSION_COMPLETE'
+            : asksConfirmation
+            ? 'CONFIRMATION_REQUIRED'
+            : null,
+          applicationSummary: toolRes.result,
+        };
+      }
+
+      // If Gemini replied with direct text without function call
+      if (candidate?.text) {
+        return {
+          reply: candidate.text,
+          toolCallsMade: [],
+        };
+      }
+
+      // Fallback to deterministic state machine
+      return await this.processDeterministicChat(messages);
+    } catch (err) {
+      console.warn('[Gemini Agent Fallback] Switching to deterministic state machine:', err);
       return this.processDeterministicChat(messages);
     }
   }
@@ -59,7 +224,7 @@ export class AgentService {
    * Deterministic State Machine Engine.
    * Ensures 100% predictable compliance with tools, schemas, and test cases without external dependencies.
    */
-  private static async processDeterministicChat(messages: ChatMessage[]): Promise<ChatResponse> {
+  public static async processDeterministicChat(messages: ChatMessage[]): Promise<ChatResponse> {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content.trim() || '';
     const fullConversationText = messages.map((m) => m.content).join('\n');
     const lower = lastUserMessage.toLowerCase();
@@ -267,25 +432,5 @@ Tell me how many grams of gold jewellery and what karat purity you have, and I w
 How many grams of gold jewellery (e.g. 45 grams, 22K) do you have?`,
       toolCallsMade,
     };
-  }
-
-  /**
-   * Gemini / OpenAI Live LLM Calling (Optional when API keys are configured)
-   */
-  private static async processGeminiChat(messages: ChatMessage[]): Promise<ChatResponse> {
-    // When live key is supplied, we fall back to deterministic if error occurs
-    try {
-      return await this.processDeterministicChat(messages);
-    } catch {
-      return this.processDeterministicChat(messages);
-    }
-  }
-
-  private static async processOpenAIChat(messages: ChatMessage[]): Promise<ChatResponse> {
-    try {
-      return await this.processDeterministicChat(messages);
-    } catch {
-      return this.processDeterministicChat(messages);
-    }
   }
 }

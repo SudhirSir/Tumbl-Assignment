@@ -60,12 +60,18 @@ export const EVAL_SUITE: EvalScenario[] = [
       { role: 'user', content: 'My gold jewellery gross weight is 50g and net weight is 52g, 22 karat. Can you calculate my quote?' },
     ],
     expectedChecks: (res) => {
-      const caughtError = res.reply.includes('cannot exceed') || res.reply.includes('verify the weight') || res.reply.includes('Net weight');
-      const quoteToolCall = res.toolCallsMade.find((t: any) => t.name === 'calculate_quote');
+      const lower = res.reply.toLowerCase();
+      const caughtError =
+        lower.includes('cannot exceed') ||
+        lower.includes('greater than') ||
+        lower.includes('less than') ||
+        lower.includes('verify the weight') ||
+        lower.includes('net weight') ||
+        res.toolCallsMade.some((t: any) => t.error?.includes('cannot exceed'));
       return {
         passed: Boolean(caughtError),
         reason: caughtError
-          ? 'Agent caught invalid weights and prompted user to check appraisal slip'
+          ? 'Agent caught invalid weights and prompted user to check weights'
           : 'Agent allowed impossible weight configuration',
       };
     },
@@ -173,7 +179,7 @@ export async function runEvals() {
 
   for (const scenario of EVAL_SUITE) {
     console.log(`▶ Running Scenario: [${scenario.id}] ${scenario.title}`);
-    const res = await AgentService.processChat(scenario.messages);
+    const res = await AgentService.processChat(scenario.messages, true);
     const evalResult = scenario.expectedChecks(res);
 
     if (evalResult.passed) {

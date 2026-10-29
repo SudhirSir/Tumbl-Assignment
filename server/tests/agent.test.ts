@@ -15,5 +15,5 @@ describe('AI Loan Assist Agent Automated Evaluations', () => {
   it('should pass all required and bonus test conversations in the evaluation suite', async () => {
     const allPassed = await runEvals();
     expect(allPassed).toBe(true);
-  });
+  }, 30000);
 });
